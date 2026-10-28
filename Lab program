@@ -4,7 +4,7 @@
   "metadata": {
     "colab": {
       "provenance": [],
-      "authorship_tag": "ABX9TyM+20ncGuMfWnGxQzjin54k",
+      "authorship_tag": "ABX9TyNkxGClxWPW7WDaJvZcA2pJ",
       "include_colab_link": true
     },
     "kernelspec": {
@@ -23,7 +23,7 @@
         "colab_type": "text"
       },
       "source": [
-        "<a href=\"https://colab.research.google.com/github/dilipshanmugam/Slot-A---NLP-/blob/main/Untitled0.ipynb\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+        "<a href=\"https://colab.research.google.com/github/dilipshanmugam/Slot-A---NLP-/blob/main/Lab%20program\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
       ]
     },
     {
@@ -38,13 +38,13 @@
     },
     {
       "cell_type": "code",
-      "execution_count": 1,
+      "execution_count": 11,
       "metadata": {
         "colab": {
           "base_uri": "https://localhost:8080/"
         },
         "id": "iiVOE3AQk31G",
-        "outputId": "fae7763e-3332-470d-8e81-f13bf053d92c"
+        "outputId": "cb40a86b-e1c8-4c5b-b9fb-46679551d661"
       },
       "outputs": [
         {
@@ -266,9 +266,9 @@
           "base_uri": "https://localhost:8080/"
         },
         "id": "T_0a6z3IlFDM",
-        "outputId": "a273d2da-dc5f-46aa-a3db-c3f03c150053"
+        "outputId": "60940e19-1be5-4772-e17a-b196a702ac4d"
       },
-      "execution_count": 2,
+      "execution_count": 12,
       "outputs": [
         {
           "output_type": "stream",
@@ -384,7 +384,7 @@
           "base_uri": "https://localhost:8080/"
         },
         "id": "BiEdAF-jlJwK",
-        "outputId": "1fb4964a-0918-4f3c-e240-94a2ea455bc4"
+        "outputId": "79237426-b49f-4d90-cbec-e32433704904"
       },
       "execution_count": 3,
       "outputs": [
@@ -565,7 +565,7 @@
           "base_uri": "https://localhost:8080/"
         },
         "id": "744_UxQ4lNc7",
-        "outputId": "01ce59c4-240f-4114-dabb-a23f60f86853"
+        "outputId": "aaf3a27e-2b5c-415d-c69b-f8f1c60fc876"
       },
       "execution_count": 4,
       "outputs": [
@@ -654,7 +654,7 @@
           "base_uri": "https://localhost:8080/"
         },
         "id": "keikxcHYlRvc",
-        "outputId": "199e70ad-30c0-44c2-ecdc-2e3e08104125"
+        "outputId": "97ed65c5-6844-4718-b1c4-3b356f356fc1"
       },
       "execution_count": 5,
       "outputs": [
@@ -688,6 +688,432 @@
             "organization         | organ                | Yes\n",
             "traditional          | tradit               | Yes\n",
             "=======================================================\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "6.\tImplement a basic N-gram model for text generation. For example, generate text using a bigram model using python."
+      ],
+      "metadata": {
+        "id": "wJamInHYkW3h"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# ==============================================================================\n",
+        "# Experiment 1: Bigram Language Model for Text Generation\n",
+        "# ==============================================================================\n",
+        "import random\n",
+        "from collections import defaultdict, Counter\n",
+        "\n",
+        "class BigramLanguageModel:\n",
+        "    def __init__(self):\n",
+        "        # Maps w_{i-1} -> Counter({w_i: frequency})\n",
+        "        self.transitions = defaultdict(Counter)\n",
+        "\n",
+        "    def train(self, corpus):\n",
+        "        for sentence in corpus:\n",
+        "            tokens = [\"<s>\"] + sentence.lower().split() + [\"</s>\"]\n",
+        "            for w1, w2 in zip(tokens[:-1], tokens[1:]):\n",
+        "                self.transitions[w1][w2] += 1\n",
+        "\n",
+        "    def generate_text(self, max_length=15, seed=\"<s>\"):\n",
+        "        current_word = seed\n",
+        "        generated = []\n",
+        "\n",
+        "        for _ in range(max_length):\n",
+        "            next_candidates = self.transitions.get(current_word)\n",
+        "            if not next_candidates:\n",
+        "                break\n",
+        "\n",
+        "            words = list(next_candidates.keys())\n",
+        "            counts = list(next_candidates.values())\n",
+        "\n",
+        "            # Weighted probabilistic selection\n",
+        "            current_word = random.choices(words, weights=counts, k=1)[0]\n",
+        "            if current_word == \"</s>\":\n",
+        "                break\n",
+        "            generated.append(current_word)\n",
+        "\n",
+        "        return \" \".join(generated)\n",
+        "\n",
+        "\n",
+        "# Sample Training Corpus\n",
+        "corpus = [\n",
+        "    \"natural language processing enables machines to understand text\",\n",
+        "    \"natural language understanding is a subfield of artificial intelligence\",\n",
+        "    \"language models predict the next word in a sequence\",\n",
+        "    \"deep learning improves natural language processing models\",\n",
+        "    \"artificial intelligence machines learn from language text and data\"\n",
+        "]\n",
+        "\n",
+        "model = BigramLanguageModel()\n",
+        "model.train(corpus)\n",
+        "\n",
+        "print(\"Generated Bigram Sentences:\")\n",
+        "for i in range(1, 4):\n",
+        "    print(f\"Sample {i}: {model.generate_text()}\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "H0GhVy3Lkn4r",
+        "outputId": "80ab180b-ab11-4edb-e0fd-070570397b9c"
+      },
+      "execution_count": 6,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Generated Bigram Sentences:\n",
+            "Sample 1: language models\n",
+            "Sample 2: language processing models predict the next word in a subfield of artificial intelligence\n",
+            "Sample 3: deep learning improves natural language processing enables machines learn from language understanding is a sequence\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "7.\tWrite program using the NLTK library to perform part-of-speech tagging on a text."
+      ],
+      "metadata": {
+        "id": "iPabELsJkX2b"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# ==============================================================================\n",
+        "# Experiment 2: POS Tagging Using NLTK\n",
+        "# ==============================================================================\n",
+        "import nltk\n",
+        "\n",
+        "nltk.download('punkt', quiet=True)\n",
+        "nltk.download('punkt_tab', quiet=True)\n",
+        "nltk.download('averaged_perceptron_tagger', quiet=True)\n",
+        "nltk.download('averaged_perceptron_tagger_eng', quiet=True)\n",
+        "\n",
+        "from nltk.tokenize import word_tokenize\n",
+        "from nltk import pos_tag\n",
+        "\n",
+        "sample_sentence = \"Natural language processing models can tag words accurately in Colab.\"\n",
+        "\n",
+        "tokens = word_tokenize(sample_sentence)\n",
+        "tagged_tokens = pos_tag(tokens)\n",
+        "\n",
+        "print(f\"{'Token':<15} | {'POS Tag':<10} | {'Description'}\")\n",
+        "print(\"-\" * 55)\n",
+        "\n",
+        "tag_explanations = {\n",
+        "    \"JJ\": \"Adjective\",\n",
+        "    \"NN\": \"Noun, singular\",\n",
+        "    \"NNS\": \"Noun, plural\",\n",
+        "    \"MD\": \"Modal auxiliary\",\n",
+        "    \"VB\": \"Verb, base form\",\n",
+        "    \"RB\": \"Adverb\",\n",
+        "    \"IN\": \"Preposition / Subordinating conjunction\",\n",
+        "    \"NNP\": \"Proper noun, singular\",\n",
+        "    \".\": \"Punctuation mark\"\n",
+        "}\n",
+        "\n",
+        "for word, tag in tagged_tokens:\n",
+        "    explanation = tag_explanations.get(tag, \"Other Tag\")\n",
+        "    print(f\"{word:<15} | {tag:<10} | {explanation}\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "bmdKUcw-ktGo",
+        "outputId": "a0a451e5-8a2f-4292-aa53-39155c8327a6"
+      },
+      "execution_count": 7,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Token           | POS Tag    | Description\n",
+            "-------------------------------------------------------\n",
+            "Natural         | JJ         | Adjective\n",
+            "language        | NN         | Noun, singular\n",
+            "processing      | NN         | Noun, singular\n",
+            "models          | NNS        | Noun, plural\n",
+            "can             | MD         | Modal auxiliary\n",
+            "tag             | VB         | Verb, base form\n",
+            "words           | NNS        | Noun, plural\n",
+            "accurately      | RB         | Adverb\n",
+            "in              | IN         | Preposition / Subordinating conjunction\n",
+            "Colab           | NNP        | Proper noun, singular\n",
+            ".               | .          | Punctuation mark\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "8.\tImplement a simple stochastic part-of-speech tagging algorithm using a basic probabilistic model to assign POS tags using python."
+      ],
+      "metadata": {
+        "id": "lKKrEp_SkdlH"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# ==============================================================================\n",
+        "# Experiment 3: Stochastic / Probabilistic POS Tagger\n",
+        "# ==============================================================================\n",
+        "from collections import defaultdict, Counter\n",
+        "\n",
+        "class StochasticPOSTagger:\n",
+        "    def __init__(self, default_tag=\"NN\"):\n",
+        "        self.word_tag_freq = defaultdict(Counter)\n",
+        "        self.best_tag_map = {}\n",
+        "        self.default_tag = default_tag\n",
+        "\n",
+        "    def train(self, labeled_corpus):\n",
+        "        # Count co-occurrences of (word, tag)\n",
+        "        for sentence in labeled_corpus:\n",
+        "            for word, tag in sentence:\n",
+        "                self.word_tag_freq[word.lower()][tag] += 1\n",
+        "\n",
+        "        # Precompute the argmax tag for each word: P(tag | word)\n",
+        "        for word, tag_counts in self.word_tag_freq.items():\n",
+        "            self.best_tag_map[word] = tag_counts.most_common(1)[0][0]\n",
+        "\n",
+        "    def tag(self, tokens):\n",
+        "        return [(word, self.best_tag_map.get(word.lower(), self.default_tag)) for word in tokens]\n",
+        "\n",
+        "\n",
+        "# Labeled training data\n",
+        "training_data = [\n",
+        "    [(\"the\", \"DT\"), (\"bank\", \"NN\"), (\"can\", \"MD\"), (\"hold\", \"VB\"), (\"the\", \"DT\"), (\"money\", \"NN\")],\n",
+        "    [(\"they\", \"PRP\"), (\"can\", \"MD\"), (\"bank\", \"VB\"), (\"on\", \"IN\"), (\"us\", \"PRP\")],\n",
+        "    [(\"he\", \"PRP\"), (\"made\", \"VBD\"), (\"a\", \"DT\"), (\"deposit\", \"NN\"), (\"in\", \"IN\"), (\"the\", \"DT\"), (\"bank\", \"NN\")]\n",
+        "]\n",
+        "\n",
+        "stochastic_tagger = StochasticPOSTagger(default_tag=\"NN\")\n",
+        "stochastic_tagger.train(training_data)\n",
+        "\n",
+        "test_sentence = \"They can bank the money safely\"\n",
+        "test_tokens = test_sentence.split()\n",
+        "predictions = stochastic_tagger.tag(test_tokens)\n",
+        "\n",
+        "print(f\"{'Token':<12} | {'Predicted Tag':<10}\")\n",
+        "print(\"-\" * 30)\n",
+        "for word, tag in predictions:\n",
+        "    print(f\"{word:<12} | {tag:<10}\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "JzhalJ8Tkv-T",
+        "outputId": "530f2b99-47b8-4119-965e-679e8203cca2"
+      },
+      "execution_count": 8,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Token        | Predicted Tag\n",
+            "------------------------------\n",
+            "They         | PRP       \n",
+            "can          | MD        \n",
+            "bank         | NN        \n",
+            "the          | DT        \n",
+            "money        | NN        \n",
+            "safely       | NN        \n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "9.\tImplement a rule-based part-of-speech tagging system using regular expressions using python."
+      ],
+      "metadata": {
+        "id": "RSWPikB_kfMn"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# ==============================================================================\n",
+        "# Experiment 4: Rule-Based POS Tagging using Regular Expressions\n",
+        "# ==============================================================================\n",
+        "import nltk\n",
+        "from nltk.tag import RegexpTagger\n",
+        "\n",
+        "# Ordered regex patterns: matches are evaluated sequentially top-to-bottom\n",
+        "regex_patterns = [\n",
+        "    (r'^-?[0-9]+(\\.[0-9]+)?$', 'CD'),           # Cardinal numbers\n",
+        "    (r'.*ing$', 'VBG'),                          # Gerunds / present participles\n",
+        "    (r'.*ed$', 'VBD'),                           # Past tense verbs\n",
+        "    (r'.*es$', 'VBZ'),                           # 3rd person singular present verbs\n",
+        "    (r'.*ould$', 'MD'),                          # Modals (could, should, would)\n",
+        "    (r'.*\\'s$', 'POS'),                          # Possessive nouns\n",
+        "    (r'.*s$', 'NNS'),                            # Plural nouns\n",
+        "    (r'.*able$', 'JJ'),                          # Adjectives\n",
+        "    (r'.*ly$', 'RB'),                            # Adverbs\n",
+        "    (r'^[A-Z][a-z]*$', 'NNP'),                   # Capitalized words / Proper nouns\n",
+        "    (r'^(the|a|an)$', 'DT'),                     # Articles / Determiners\n",
+        "    (r'^(in|on|at|by|with|for)$', 'IN'),         # Prepositions\n",
+        "    (r'.*', 'NN')                                # Default fallback to singular noun\n",
+        "]\n",
+        "\n",
+        "regex_tagger = RegexpTagger(regex_patterns)\n",
+        "\n",
+        "sample_tokens = [\"Google\", \"quickly\", \"processed\", \"250\", \"running\", \"shoes\", \"for\", \"a\", \"buyer\"]\n",
+        "tagged_output = regex_tagger.tag(sample_tokens)\n",
+        "\n",
+        "print(f\"{'Token':<15} | {'Assigned Tag':<10}\")\n",
+        "print(\"-\" * 30)\n",
+        "for token, tag in tagged_output:\n",
+        "    print(f\"{token:<15} | {tag:<10}\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "AO0incPHkzip",
+        "outputId": "df7d9f38-add1-40cb-caa7-e9999948bfce"
+      },
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Token           | Assigned Tag\n",
+            "------------------------------\n",
+            "Google          | NNP       \n",
+            "quickly         | RB        \n",
+            "processed       | VBD       \n",
+            "250             | CD        \n",
+            "running         | VBG       \n",
+            "shoes           | VBZ       \n",
+            "for             | IN        \n",
+            "a               | DT        \n",
+            "buyer           | NN        \n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "10.\tImplement transformation-based tagging using a set of transformation rules, apply a simple rule to tag words using python."
+      ],
+      "metadata": {
+        "id": "o5Qbj9-NkkgF"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# ==============================================================================\n",
+        "# Experiment 5: Transformation-Based Tagging (TBL)\n",
+        "# ==============================================================================\n",
+        "\n",
+        "class SimpleTransformationTagger:\n",
+        "    def __init__(self):\n",
+        "        # Defined transformation rules: (current_tag, new_tag, condition_function)\n",
+        "        self.rules = [\n",
+        "            # Rule 1: Change NN to VB if immediately preceded by a modal (MD)\n",
+        "            (\"NN\", \"VB\", lambda i, tags, words: i > 0 and tags[i - 1] == \"MD\"),\n",
+        "\n",
+        "            # Rule 2: Change NN to JJ if next token is a noun (NN / NNS)\n",
+        "            (\"NN\", \"JJ\", lambda i, tags, words: i + 1 < len(tags) and tags[i + 1] in (\"NN\", \"NNS\")),\n",
+        "\n",
+        "            # Rule 3: Change NN to VBD if word ends in 'ed'\n",
+        "            (\"NN\", \"VBD\", lambda i, tags, words: words[i].lower().endswith(\"ed\")),\n",
+        "\n",
+        "            # Rule 4: Change NN to RB if word ends in 'ly'\n",
+        "            (\"NN\", \"RB\", lambda i, tags, words: words[i].lower().endswith(\"ly\"))\n",
+        "        ]\n",
+        "\n",
+        "    def initial_tagger(self, words):\n",
+        "        \"\"\"Initial baseline tagging: assign seed tags and default remaining to NN.\"\"\"\n",
+        "        lexicon = {\"they\": \"PRP\", \"can\": \"MD\", \"the\": \"DT\", \"fast\": \"NN\"}\n",
+        "        return [lexicon.get(w.lower(), \"NN\") for w in words]\n",
+        "\n",
+        "    def tag(self, words):\n",
+        "        # Step 1: Baseline assignment\n",
+        "        tags = self.initial_tagger(words)\n",
+        "        print(f\"Initial State: {list(zip(words, tags))}\\n\")\n",
+        "\n",
+        "        # Step 2: Apply transformation rules iteratively\n",
+        "        applied_rules_log = []\n",
+        "        for current_tag, new_tag, condition in self.rules:\n",
+        "            for i in range(len(words)):\n",
+        "                if tags[i] == current_tag and condition(i, tags, words):\n",
+        "                    tags[i] = new_tag\n",
+        "                    applied_rules_log.append(\n",
+        "                        f\"Transformed '{words[i]}': {current_tag} -> {new_tag}\"\n",
+        "                    )\n",
+        "\n",
+        "        return list(zip(words, tags)), applied_rules_log\n",
+        "\n",
+        "\n",
+        "# Demonstration\n",
+        "tb_tagger = SimpleTransformationTagger()\n",
+        "test_words = [\"They\", \"can\", \"race\", \"fast\", \"cars\", \"quickly\"]\n",
+        "\n",
+        "final_tags, rule_log = tb_tagger.tag(test_words)\n",
+        "\n",
+        "print(\"Rules Applied:\")\n",
+        "for log in rule_log:\n",
+        "    print(f\"  * {log}\")\n",
+        "\n",
+        "print(\"\\nFinal Tagged Output:\")\n",
+        "print(f\"{'Token':<12} | {'Final Tag':<10}\")\n",
+        "print(\"-\" * 25)\n",
+        "for word, tag in final_tags:\n",
+        "    print(f\"{word:<12} | {tag:<10}\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "slcvUUWvk2iW",
+        "outputId": "f53060da-35ab-497a-998c-89f3f0c26b5e"
+      },
+      "execution_count": 10,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Initial State: [('They', 'PRP'), ('can', 'MD'), ('race', 'NN'), ('fast', 'NN'), ('cars', 'NN'), ('quickly', 'NN')]\n",
+            "\n",
+            "Rules Applied:\n",
+            "  * Transformed 'race': NN -> VB\n",
+            "  * Transformed 'fast': NN -> JJ\n",
+            "  * Transformed 'cars': NN -> JJ\n",
+            "  * Transformed 'quickly': NN -> RB\n",
+            "\n",
+            "Final Tagged Output:\n",
+            "Token        | Final Tag \n",
+            "-------------------------\n",
+            "They         | PRP       \n",
+            "can          | MD        \n",
+            "race         | VB        \n",
+            "fast         | JJ        \n",
+            "cars         | JJ        \n",
+            "quickly      | RB        \n"
           ]
         }
       ]
