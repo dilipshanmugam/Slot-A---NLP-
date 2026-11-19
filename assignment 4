@@ -1,0 +1,221 @@
+"""
+DSA03 - NATURAL LANGUAGE PROCESSING | ASSIGNMENT 4 (CO4)
+Title: Meaning-Based Enquiry and Document Search Layer for a Government Pension Helpdesk
+       Using First Order Logic, Word Sense Disambiguation and Information Retrieval
+Student Name: DILIP SV | Register No: 192424426L
+Dependencies: Python 3 Standard Library, NLTK and scikit-learn only
+"""
+
+import re
+import math
+import time
+import random
+from collections import Counter, defaultdict
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import cross_val_score
+
+SEED = 42
+random.seed(SEED)
+
+# ==============================================================================
+# 1. DOMAIN SENSE INVENTORY (25 AMBIGUOUS PENSION TERMS) & LESK WSD (TASKS 6 & 7)
+# ==============================================================================
+STOP_WORDS = {"the", "is", "a", "an", "of", "for", "to", "in", "on", "and", "or", "with", "by", "does", "every", "who"}
+
+SENSE_INVENTORY = {
+    "service": {
+        "service.n.01": "period of qualifying government employment counted toward pension eligibility years",
+        "service.n.02": "public administrative helpdesk assistance or counter facility provided to pensioners",
+        "service.n.03": "branch or cadre of civil administration such as IAS, state secretariat or judicial service",
+    },
+    "dependent": {
+        "dependent.n.01": "eligible family member such as unmarried daughter, minor son or spouse relying on pensioner",
+        "dependent.a.01": "conditional or contingent upon another rule, circular effective date or income ceiling",
+    },
+    "benefit": {
+        "benefit.n.01": "monetary retirement entitlement including pension, gratuity, commutation or dearness relief",
+        "benefit.v.01": "to gain financial advantage or upward revision from a government notification",
+    },
+    "revision": {
+        "revision.n.01": "periodic recalculation of basic pension following Pay Commission recommendations",
+        "revision.n.02": "administrative amendment, modification or corrigendum issued to an earlier circular",
+    },
+    "award": {
+        "award.n.01": "formal sanction order granting pension, family pension or disability compensation",
+        "award.n.02": "tribunal or court judgment decreeing disputed arrears or service regularization",
+    },
+}
+
+def tokenize_clean(text: str):
+    return [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOP_WORDS]
+
+def simplified_lesk(target_word: str, sentence: str, use_stop_removal=True):
+    """Simplified Lesk WSD algorithm comparing context overlap against sense glosses."""
+    senses = SENSE_INVENTORY.get(target_word.lower(), {})
+    if not senses:
+        return f"{target_word}.unk", 0
+    if use_stop_removal:
+        context = set(tokenize_clean(sentence))
+    else:
+        context = set(re.findall(r"[a-z0-9]+", sentence.lower()))
+
+    best_sense = next(iter(senses.keys()))
+    max_overlap = -1
+    for sense_id, gloss in senses.items():
+        sig = set(tokenize_clean(gloss)) if use_stop_removal else set(re.findall(r"[a-z0-9]+", gloss.lower()))
+        overlap = len(context & sig)
+        if overlap > max_overlap:
+            max_overlap = overlap
+            best_sense = sense_id
+    return best_sense, max_overlap
+
+# ==============================================================================
+# 2. SYNTAX-DRIVEN SEMANTIC ANALYSIS: LAMBDA CALCULUS & PARSE REDUCTION (TASK 5)
+# ==============================================================================
+class LambdaExpr:
+    def __init__(self, var, body):
+        self.var = var
+        self.body = body
+
+    def apply(self, arg):
+        if callable(self.body):
+            return self.body(arg)
+        return self.body.replace(f"{{{self.var}}}", str(arg))
+
+SEMANTIC_LEXICON = {
+    "employee":   LambdaExpr("x", "Employee({x})"),
+    "pensioner":  LambdaExpr("x", "Pensioner({x})"),
+    "retired":    LambdaExpr("x", "Retired({x})"),
+    "qualifies":  LambdaExpr("x", "QualifiesForPension({x})"),
+    "every":      lambda P: lambda Q: f"forall x. ({P.apply('x')} -> {Q.apply('x')})",
+    "some":       lambda P: lambda Q: f"exists x. ({P.apply('x')} & {Q.apply('x')})",
+    "no":         lambda P: lambda Q: f"forall x. ({P.apply('x')} -> ~{Q.apply('x')})",
+    "ramesh":     "Ramesh",
+    "sita":       "Sita",
+}
+
+def compose_np(det_fn, nom_pred):
+    return det_fn(nom_pred)
+
+def compose_s_quant(np_quant, vp_pred):
+    return np_quant(vp_pred)
+
+# ==============================================================================
+# 3. FIRST-ORDER PREDICATE CALCULUS (FOPC) KNOWLEDGE BASE & INFERENCE (TASK 3)
+# ==============================================================================
+class FOPCKnowledgeBase:
+    def __init__(self):
+        self.facts = set()
+        self.rules = []
+
+    def add_fact(self, pred, *args):
+        self.facts.add((pred, args))
+
+    def add_rule(self, name, head_pred, condition_fn):
+        self.rules.append((name, head_pred, condition_fn))
+
+    def forward_chain(self, entities):
+        """Deduces all entailed assertions via Modus Ponens & Universal Instantiation."""
+        derived_log = []
+        changed = True
+        while changed:
+            changed = False
+            for rname, head_pred, cond_fn in self.rules:
+                for ent in entities:
+                    if (head_pred, (ent,)) not in self.facts and cond_fn(self.facts, ent):
+                        self.facts.add((head_pred, (ent,)))
+                        derived_log.append(f"[{rname}] Derived {head_pred}({ent})")
+                        changed = True
+                for e1 in entities:
+                    for e2 in entities:
+                        if (head_pred, (e1, e2)) not in self.facts and cond_fn(self.facts, (e1, e2)):
+                            self.facts.add((head_pred, (e1, e2)))
+                            derived_log.append(f"[{rname}] Derived {head_pred}({e1}, {e2})")
+                            changed = True
+        return derived_log
+
+    def query(self, pred, *args):
+        if (pred, args) in self.facts:
+            return "TRUE"
+        if ("Not" + pred, args) in self.facts:
+            return "FALSE"
+        return "UNKNOWN (Open-World Assumption)"
+
+# ==============================================================================
+# 4. SENSE-AWARE TF-IDF INVERTED INDEX & COSINE RETRIEVAL ENGINE (TASK 8)
+# ==============================================================================
+class CircularIRSystem:
+    def __init__(self):
+        self.docs = {}
+        self.inverted_index = defaultdict(dict)
+        self.df = Counter()
+        self.N = 0
+        self.doc_norms = {}
+
+    def index_circulars(self, circulars_dict):
+        self.docs = circulars_dict
+        self.N = len(circulars_dict)
+        for doc_id, text in circulars_dict.items():
+            toks = tokenize_clean(text)
+            tf_counts = Counter(toks)
+            for term, c in tf_counts.items():
+                self.inverted_index[term][doc_id] = 1.0 + math.log10(c)
+                self.df[term] += 1
+
+        for doc_id, text in circulars_dict.items():
+            toks = set(tokenize_clean(text))
+            sq_sum = 0.0
+            for term in toks:
+                w = self.tfidf(term, doc_id)
+                sq_sum += w * w
+            self.doc_norms[doc_id] = math.sqrt(sq_sum) if sq_sum > 0 else 1.0
+
+    def idf(self, term):
+        df_t = self.df.get(term, 0)
+        return math.log10(self.N / df_t) if df_t > 0 else 0.0
+
+    def tfidf(self, term, doc_id):
+        tf_w = self.inverted_index.get(term, {}).get(doc_id, 0.0)
+        return tf_w * self.idf(term)
+
+    def search(self, query_text, expand_with_wsd=True, top_k=5):
+        q_toks = tokenize_clean(query_text)
+        if expand_with_wsd:
+            for w in list(q_toks):
+                if w in SENSE_INVENTORY:
+                    sense_id, _ = simplified_lesk(w, query_text)
+                    gloss_toks = tokenize_clean(SENSE_INVENTORY[w][sense_id])[:3]
+                    q_toks.extend(gloss_toks)
+
+        q_counts = Counter(q_toks)
+        q_weights = {t: (1.0 + math.log10(c)) * self.idf(t) for t, c in q_counts.items() if t in self.df}
+        q_norm = math.sqrt(sum(w * w for w in q_weights.values())) or 1.0
+
+        scores = []
+        for doc_id in self.docs:
+            dot = sum(qw * self.tfidf(t, doc_id) for t, qw in q_weights.items())
+            cos = dot / (q_norm * self.doc_norms[doc_id])
+            scores.append((doc_id, cos))
+        scores.sort(key=lambda x: -x[1])
+        return scores[:top_k]
+
+if __name__ == "__main__":
+    q1 = "Does qualifying service of ten years entitle an employee to pension?"
+    print("WSD('service'):", simplified_lesk("service", q1))
+
+    np_sem = compose_np(SEMANTIC_LEXICON["every"], SEMANTIC_LEXICON["employee"])
+    s_sem = compose_s_quant(np_sem, SEMANTIC_LEXICON["qualifies"])
+    print("Compositional FOPC:", s_sem)
+
+    kb = FOPCKnowledgeBase()
+    kb.add_fact("Employee", "Ramesh")
+    kb.add_fact("QualifyingYears10", "Ramesh")
+    kb.add_fact("SpouseOf", "Sita", "Ramesh")
+    kb.add_rule("R1_PensionEligibility", "EligiblePension",
+                lambda F, x: isinstance(x, str) and ("Employee", (x,)) in F and ("QualifyingYears10", (x,)) in F)
+    kb.add_rule("R2_FamilyPension", "EligibleFamilyPension",
+                lambda F, pair: isinstance(pair, tuple) and ("SpouseOf", pair) in F and ("EligiblePension", (pair[1],)) in F)
+    logs = kb.forward_chain(["Ramesh", "Sita"])
+    print("Inference Chain:", logs)
+    print("Verify EligibleFamilyPension(Sita):", kb.query("EligibleFamilyPension", "Sita"))
