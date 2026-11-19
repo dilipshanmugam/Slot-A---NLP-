@@ -1,1 +1,255 @@
+"""
+DSA03 - NATURAL LANGUAGE PROCESSING | ASSIGNMENT 2 (CO2)
+Title: N-gram Language Model and Part-of-Speech Tagger for a Public Transport Enquiry Helpline
+Student Name: DILIP SV | Register No: 192424426L
+Dependencies: Python 3 Standard Library + NLTK only
+"""
 
+import re
+import time
+import math
+import random
+from collections import Counter, defaultdict
+
+SEED = 42
+random.seed(SEED)
+
+# ==============================================================================
+# 1. TOKENISATION, VOCABULARY & <UNK> MAPPING (TASK 1)
+# ==============================================================================
+def tokenize_utterance(utterance: str):
+    """Lowercases text, keeps time (6:30) & date (15/11/2026) intact, adds <s> and </s>."""
+    tokens = re.findall(r"[a-z0-9]+(?:[:/][a-z0-9]+)*", utterance.lower())
+    return ["<s>"] + tokens + ["</s>"]
+
+def build_vocabulary(train_tokens, min_freq: int = 2):
+    counts = Counter(train_tokens)
+    vocab = {w for w, c in counts.items() if c >= min_freq}
+    vocab.add("<UNK>")
+    return vocab
+
+def apply_unk(tokens, vocab):
+    return [t if t in vocab else "<UNK>" for t in tokens]
+
+# ==============================================================================
+# 2. N-GRAM LANGUAGE MODELS: UNSMOOTHED, ADD-K, GOOD-TURING, KATZ & INTERPOLATION
+# ==============================================================================
+class NgramLanguageModel:
+    def __init__(self, vocab):
+        self.vocab = vocab
+        self.V = len(vocab)
+        self.unigram_counts = Counter()
+        self.bigram_counts = Counter()
+        self.trigram_counts = Counter()
+        self.total_tokens = 0
+        self.gt_bigram_cstar = {}
+        self.p_unseen_bigram = 0.0
+        self.lambdas = (0.15, 0.30, 0.55)
+
+    def train(self, tokenized_utterances):
+        for utt in tokenized_utterances:
+            seq = apply_unk(utt, self.vocab)
+            self.total_tokens += len(seq)
+            for i, w in enumerate(seq):
+                self.unigram_counts[w] += 1
+                if i >= 1:
+                    self.bigram_counts[(seq[i-1], w)] += 1
+                if i >= 2:
+                    self.trigram_counts[(seq[i-2], seq[i-1], w)] += 1
+        self._compute_good_turing()
+
+    def _compute_good_turing(self):
+        freq_of_freq = Counter(self.bigram_counts.values())
+        N1 = freq_of_freq.get(1, 1)
+        total_bigrams = sum(self.bigram_counts.values())
+        possible_unseen = max(1, (self.V * self.V) - len(self.bigram_counts))
+        self.p_unseen_bigram = (N1 / total_bigrams) / possible_unseen
+        for bg, c in self.bigram_counts.items():
+            if c >= 5:
+                self.gt_bigram_cstar[bg] = float(c)
+            else:
+                nc = freq_of_freq[c]
+                nc1 = freq_of_freq.get(c + 1, nc)
+                self.gt_bigram_cstar[bg] = (c + 1) * (nc1 / nc)
+
+    def prob_unsmoothed_bigram(self, w1, w2):
+        c1 = self.unigram_counts[w1]
+        return (self.bigram_counts[(w1, w2)] / c1) if c1 > 0 else 0.0
+
+    def prob_add_k_bigram(self, w1, w2, k=0.1):
+        return (self.bigram_counts[(w1, w2)] + k) / (self.unigram_counts[w1] + k * self.V)
+
+    def prob_good_turing_bigram(self, w1, w2):
+        c1 = self.unigram_counts[w1]
+        if c1 == 0:
+            return 1.0 / self.V
+        bg = (w1, w2)
+        if bg in self.gt_bigram_cstar:
+            return self.gt_bigram_cstar[bg] / c1
+        return self.p_unseen_bigram
+
+    def prob_katz_backoff_trigram(self, w1, w2, w3):
+        c123 = self.trigram_counts[(w1, w2, w3)]
+        c12 = self.bigram_counts[(w1, w2)]
+        if c123 > 0 and c12 > 0:
+            return max(c123 - 0.75, 0.0) / c12
+        seen_followers = [w for (a, b, w) in self.trigram_counts if a == w1 and b == w2]
+        beta = 1.0 - sum(max(self.trigram_counts[(w1, w2, w)] - 0.75, 0.0) / c12 for w in seen_followers) if c12 > 0 else 1.0
+        denom = max(1e-9, 1.0 - sum(self.prob_good_turing_bigram(w2, w) for w in seen_followers))
+        alpha = beta / denom
+        return alpha * self.prob_good_turing_bigram(w2, w3)
+
+    def prob_deleted_interpolation(self, w1, w2, w3, l1=0.12, l2=0.33, l3=0.55):
+        p1 = self.unigram_counts[w3] / max(1, self.total_tokens)
+        p2 = (self.bigram_counts[(w2, w3)] / self.unigram_counts[w2]) if self.unigram_counts[w2] > 0 else p1
+        p3 = (self.trigram_counts[(w1, w2, w3)] / self.bigram_counts[(w1, w2)]) if self.bigram_counts[(w1, w2)] > 0 else p2
+        return l1 * p1 + l2 * p2 + l3 * p3
+
+    def perplexity(self, tokenized_utterances, mode="interp"):
+        log_prob_sum = 0.0
+        N = 0
+        for utt in tokenized_utterances:
+            seq = apply_unk(utt, self.vocab)
+            for i in range(2, len(seq)):
+                w1, w2, w3 = seq[i-2], seq[i-1], seq[i]
+                if mode == "add_k":
+                    p = self.prob_add_k_bigram(w2, w3, k=0.1)
+                elif mode == "gt":
+                    p = self.prob_good_turing_bigram(w2, w3)
+                elif mode == "katz":
+                    p = self.prob_katz_backoff_trigram(w1, w2, w3)
+                else:
+                    p = self.prob_deleted_interpolation(w1, w2, w3)
+                log_prob_sum += math.log2(max(p, 1e-12))
+                N += 1
+        cross_entropy = -log_prob_sum / max(1, N)
+        return cross_entropy, 2 ** cross_entropy
+
+    def rescore_hypotheses(self, hypotheses_list):
+        best_utt, best_score = None, -1e18
+        for hyp in hypotheses_list:
+            seq = apply_unk(tokenize_utterance(hyp), self.vocab)
+            score = 0.0
+            for i in range(2, len(seq)):
+                score += math.log(max(self.prob_deleted_interpolation(seq[i-2], seq[i-1], seq[i]), 1e-12))
+            if score > best_score:
+                best_score, best_utt = score, hyp
+        return best_utt
+
+# ==============================================================================
+# 3. THREE POS TAGGERS: RULE-BASED, HMM VITERBI, AND BRILL TBL (TASKS 7-9)
+# ==============================================================================
+DOMAIN_LEXICON_TAGS = {
+    "to": ["TO"], "from": ["IN"], "at": ["IN"], "on": ["IN"], "for": ["IN"], "in": ["IN"],
+    "the": ["DT"], "a": ["DT"], "an": ["DT"], "this": ["DT"], "my": ["PRP$"],
+    "i": ["PRP"], "you": ["PRP"], "it": ["PRP"],
+    "two": ["CD"], "one": ["CD"], "three": ["CD"], "2": ["CD"], "3": ["CD"],
+    "chennai": ["NNP"], "vellore": ["NNP"], "madurai": ["NNP"], "coimbatore": ["NNP"],
+    "tickets": ["NNS"], "ticket": ["NN"], "bus": ["NN"], "train": ["NN"], "fare": ["NN"],
+    "express": ["JJ", "NN"], "sleeper": ["NN", "JJ"], "timing": ["NN"], "refund": ["NN", "VB"],
+    "book": ["VB", "NN"], "return": ["NN", "VB"], "stand": ["NN", "VB"],
+    "cancel": ["VB"], "want": ["VBP"], "get": ["VB"], "stop": ["VB", "NN"],
+    "what": ["WP"], "when": ["WRB"], "how": ["WRB"], "can": ["MD"], "does": ["VBZ"],
+    "please": ["UH"], "uh": ["UH"], "um": ["UH"]
+}
+
+def rule_based_tagger(tokens):
+    """Two-stage tagger: dictionary lookup + contextual disambiguation rules."""
+    tags = [DOMAIN_LEXICON_TAGS.get(w.lower(), ["NN"])[0] for w in tokens]
+    for i, w in enumerate(tokens):
+        wl = w.lower()
+        prev_t = tags[i-1] if i > 0 else "BOS"
+        next_w = tokens[i+1].lower() if i + 1 < len(tokens) else "EOS"
+        if wl == "book":
+            tags[i] = "VB" if prev_t in ("TO", "MD", "UH", "BOS") else "NN"
+        elif wl == "return":
+            tags[i] = "JJ" if next_w in ("ticket", "tickets", "fare") else ("VB" if prev_t in ("TO", "MD") else "NN")
+        elif wl == "stand":
+            tags[i] = "NN" if prev_t in ("NN", "DT") else "VB"
+        elif re.match(r"^\d{1,2}:\d{2}$", wl):
+            tags[i] = "TIME"
+        elif re.match(r"^\d{2}/\d{2}/\d{4}$", wl):
+            tags[i] = "DATE"
+    return list(zip(tokens, tags))
+
+class HMMViterbiTagger:
+    def __init__(self):
+        self.transitions = defaultdict(Counter)
+        self.emissions = defaultdict(Counter)
+        self.tag_counts = Counter()
+        self.tags = set()
+
+    def train(self, tagged_sentences):
+        for sent in tagged_sentences:
+            prev = "<s>"
+            self.tag_counts[prev] += 1
+            for word, tag in sent:
+                wl = word.lower()
+                self.tags.add(tag)
+                self.transitions[prev][tag] += 1
+                self.emissions[tag][wl] += 1
+                self.tag_counts[tag] += 1
+                prev = tag
+            self.transitions[prev]["</s>"] += 1
+
+    def _emit_prob(self, tag, word):
+        wl = word.lower()
+        V_emit = len(self.emissions[tag]) + 50
+        if wl in self.emissions[tag]:
+            return (self.emissions[tag][wl] + 0.1) / (self.tag_counts[tag] + 0.1 * V_emit)
+        if re.match(r"^\d{1,2}:\d{2}$", wl) and tag == "TIME":
+            return 0.85
+        if re.match(r"^\d{2}/\d{2}/\d{4}$", wl) and tag == "DATE":
+            return 0.85
+        if word[0].isupper() and tag == "NNP":
+            return 0.65
+        if wl.endswith("ing") and tag == "VBG":
+            return 0.50
+        if wl.endswith("s") and tag == "NNS":
+            return 0.45
+        return 0.05 / (self.tag_counts[tag] + 0.1 * V_emit)
+
+    def viterbi_decode(self, tokens):
+        states = sorted(list(self.tags))
+        T = len(tokens)
+        dp = [{} for _ in range(T)]
+        backptr = [{} for _ in range(T)]
+        V_tags = len(states) + 1
+
+        for s in states:
+            p_trans = (self.transitions["<s>"][s] + 0.1) / (self.tag_counts["<s>"] + 0.1 * V_tags)
+            dp[0][s] = math.log(p_trans) + math.log(self._emit_prob(s, tokens[0]))
+            backptr[0][s] = "<s>"
+
+        for t in range(1, T):
+            for s in states:
+                emit_lp = math.log(self._emit_prob(s, tokens[t]))
+                best_val, best_prev = -1e18, None
+                for sp in states:
+                    p_tr = (self.transitions[sp][s] + 0.1) / (self.tag_counts[sp] + 0.1 * V_tags)
+                    val = dp[t-1][sp] + math.log(p_tr) + emit_lp
+                    if val > best_val:
+                        best_val, best_prev = val, sp
+                dp[t][s] = best_val
+                backptr[t][s] = best_prev
+
+        best_last = max(states, key=lambda s: dp[T-1][s])
+        best_prob = math.exp(dp[T-1][best_last])
+        seq = [best_last]
+        for t in range(T-1, 0, -1):
+            seq.append(backptr[t][seq[-1]])
+        seq.reverse()
+        return list(zip(tokens, seq)), best_prob
+
+if __name__ == "__main__":
+    sample_corpus = [
+        tokenize_utterance("I want to book two tickets to Vellore"),
+        tokenize_utterance("can I return this ticket at the bus stand"),
+        tokenize_utterance("what platform does the Chennai express train stand on at 6:30")
+    ]
+    vocab = build_vocabulary([t for u in sample_corpus for t in u], min_freq=1)
+    lm = NgramLanguageModel(vocab)
+    lm.train(sample_corpus)
+    hyps = ["two tickets to Vellore", "to tickets to Vellore", "two tickets to Velore"]
+    print("Rescored Best Hypothesis:", lm.rescore_hypotheses(hyps))
+    print("Rule-Based Tagging:", rule_based_tagger(["I", "want", "to", "book", "return", "tickets", "at", "6:30"]))
