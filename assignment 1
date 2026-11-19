@@ -1,0 +1,367 @@
+"""
+DSA03 - NATURAL LANGUAGE PROCESSING | ASSIGNMENT 1 (CO1)
+Title: Morphology-Aware Text Normalisation and Search Layer for a Hospital Record System
+Student Name: DILIP SV | Register No: 192424426L
+Dependencies: Python 3 Standard Library + NLTK only
+"""
+
+import re
+import time
+import math
+from collections import Counter, defaultdict
+import nltk
+from nltk.stem import PorterStemmer
+
+# ==============================================================================
+# 1. CLINICAL LEXICON & MORPHOLOGICAL RESOURCES (300+ STEMS, AFFIXES, IRREGULARS)
+# ==============================================================================
+NOUN_STEMS = {
+    "fracture", "nephrectomy", "cardiomyopathy", "pneumonia", "appendicitis", "gastritis",
+    "hepatitis", "dermatitis", "arthritis", "bronchitis", "sinusitis", "tonsillitis",
+    "meningitis", "encephalitis", "pericarditis", "endocarditis", "myocarditis", "pancreatitis",
+    "cholecystitis", "pyelonephritis", "cystitis", "urethritis", "prostatitis", "orchitis",
+    "colitis", "enteritis", "diverticulitis", "esophagitis", "pharyngitis", "laryngitis",
+    "tracheitis", "otitis", "conjunctivitis", "keratitis", "uveitis", "retinitis",
+    "neuritis", "myelitis", "vasculitis", "phlebitis", "thrombosis", "embolism",
+    "aneurysm", "ischemia", "infarction", "arrhythmia", "tachycardia", "bradycardia",
+    "hypertension", "hypotension", "cardiomegaly", "stenosis", "regurgitation", "effusion",
+    "edema", "ascites", "jaundice", "cirrhosis", "fibrosis", "necrosis",
+    "apoptosis", "sepsis", "bacteremia", "viremia", "fungemia", "parasitemia",
+    "anemia", "leukemia", "lymphoma", "myeloma", "carcinoma", "sarcoma",
+    "adenoma", "melanoma", "glioma", "astrocytoma", "neuroblastoma", "osteosarcoma",
+    "biopsy", "autopsy", "endoscopy", "colonoscopy", "bronchoscopy", "laparoscopy",
+    "arthroscopy", "cystoscopy", "gastroscopy", "laryngoscopy", "thoracoscopy", "hysteroscopy",
+    "mastectomy", "hysterectomy", "appendectomy", "cholecystectomy", "colectomy", "gastrectomy",
+    "lobectomy", "pneumonectomy", "thyroidectomy", "tonsillectomy", "adenoidectomy", "splenectomy",
+    "prostatectomy", "cystectomy", "oophorectomy", "salpingectomy", "vasectomy", "craniotomy",
+    "thoracotomy", "laparotomy", "tracheostomy", "colostomy", "ileostomy", "gastrostomy",
+    "cardiology", "neurology", "nephrology", "hepatology", "gastroenterology", "pulmonology",
+    "endocrinology", "hematology", "oncology", "immunology", "rheumatology", "dermatology",
+    "ophthalmology", "otolaryngology", "urology", "gynecology", "obstetrics", "pediatrics",
+    "geriatrics", "psychiatry", "radiology", "pathology", "anesthesiology", "pharmacology",
+    "patient", "clinician", "surgeon", "physician", "nurse", "ward",
+    "admission", "discharge", "prescription", "medication", "dosage", "tablet",
+    "capsule", "injection", "infusion", "solution", "suspension", "ointment",
+    "symptom", "syndrome", "disorder", "disease", "infection", "inflammation",
+    "lesion", "ulcer", "abscess", "cyst", "nodule", "tumor",
+    "hemorrhage", "hematoma", "contusion", "laceration", "abrasion", "dislocation",
+    "sprain", "strain", "concussion", "coma", "seizure", "tremor",
+    "headache", "migraine", "vertigo", "syncope", "dyspnea", "orthopnea",
+    "cough", "sputum", "hemoptysis", "wheeze", "cyanosis", "hypoxia",
+    "nausea", "vomiting", "diarrhea", "constipation", "dysphagia", "dyspepsia",
+    "hematuria", "dysuria", "polyuria", "oliguria", "anuria", "proteinuria",
+    "fever", "pyrexia", "chills", "rigor", "fatigue", "malaise",
+    "weight", "height", "pulse", "pressure", "temperature", "respiration",
+    "glucose", "creatinine", "bilirubin", "albumin", "hemoglobin", "platelet",
+    "leukocyte", "erythrocyte", "neutrophil", "lymphocyte", "monocyte", "eosinophil",
+    "sodium", "potassium", "chloride", "bicarbonate", "calcium", "magnesium",
+    "troponin", "amylase", "lipase", "cholesterol", "triglyceride", "thyroxine"
+}
+
+VERB_STEMS = {
+    "admit", "discharge", "prescribe", "administer", "infuse", "inject",
+    "diagnose", "evaluate", "examine", "auscultate", "palpate", "percuss",
+    "monitor", "observe", "record", "document", "report", "refer",
+    "operate", "resect", "excise", "incise", "suture", "drain",
+    "intubate", "extubate", "ventilate", "resuscitate", "stabilize", "transfuse",
+    "fracture", "heal", "recover", "deteriorate", "relapse", "remit",
+    "alleviate", "exacerbate", "complicate", "resolve", "persist", "recur",
+    "measure", "calculate", "analyze", "interpret", "confirm", "exclude",
+    "elevate", "reduce", "suppress", "stimulate", "inhibit", "activate"
+}
+
+ADJ_STEMS = {
+    "acute", "chronic", "subacute", "recurrent", "severe", "moderate",
+    "mild", "critical", "stable", "unstable", "febrile", "afebrile",
+    "renal", "hepatic", "cardiac", "pulmonary", "cerebral", "vascular",
+    "gastric", "enteric", "dermal", "neural", "ocular", "otic",
+    "nasal", "oral", "pelvic", "thoracic", "abdominal", "cranial",
+    "benign", "malignant", "metastatic", "invasive", "localized", "systemic",
+    "septic", "aseptic", "sterile", "infectious", "inflammatory", "necrotic",
+    "ischemic", "hypoxic", "cyanotic", "edematous", "anemic", "jaundiced",
+    "hypertensive", "hypotensive", "tachycardic", "bradycardic", "dyspneic", "asymptomatic",
+    "bilateral", "unilateral", "proximal", "distal", "anterior", "posterior",
+    "superior", "inferior", "medial", "lateral", "superficial", "deep"
+}
+
+IRREGULAR_FORMS = {
+    "mice": ["mouse+N+PL"], "feet": ["foot+N+PL"], "teeth": ["tooth+N+PL"],
+    "children": ["child+N+PL"], "women": ["woman+N+PL"], "men": ["man+N+PL"],
+    "thrombi": ["thrombus+N+PL"], "emboli": ["embolus+N+PL"], "alveoli": ["alveolus+N+PL"],
+    "bronchi": ["bronchus+N+PL"], "foci": ["focus+N+PL"], "nuclei": ["nucleus+N+PL"],
+    "bacteria": ["bacterium+N+PL"], "criteria": ["criterion+N+PL"], "phenomena": ["phenomenon+N+PL"],
+    "diagnoses": ["diagnosis+N+PL"], "prognoses": ["prognosis+N+PL"], "metastases": ["metastasis+N+PL"],
+    "was": ["be+V+PAST+SG"], "were": ["be+V+PAST+PL"], "swollen": ["swell+V+PPART"],
+    "broken": ["break+V+PPART"], "bleeding": ["bleed+V+PROG"], "bled": ["bleed+V+PAST"],
+    "better": ["good+ADJ+COMP"], "best": ["good+ADJ+SUP"], "worse": ["bad+ADJ+COMP"], "worst": ["bad+ADJ+SUP"]
+}
+
+# ==============================================================================
+# 2. REGEX TOKENISER & CLINICAL NORMALISER (TASK 2 & TASK 3)
+# ==============================================================================
+TOKENIZER_REGEX = re.compile(
+    r"""
+    (?P<PAT_ID>\b(?:PAT-\d{8}|MRN/\d{5})\b)
+    |(?P<ICD>\b[A-Z]\d{2}(?:\.\d{1,4}[A-Z]?)?\b)
+    |(?P<DATE>\b(?:\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2})\b)
+    |(?P<BP>\b\d{2,3}/\d{2,3}\s?mmHg\b)
+    |(?P<TEMP>\b\d{2,3}(?:\.\d)?\s?[FC]\b)
+    |(?P<LAB>\b\d+(?:\.\d+)?\s?(?:g/dL|mg/dL|mmol/L|ng/mL|x10\^9/L|x10\^3/uL)\b)
+    |(?P<STRENGTH>\b\d+(?:\.\d+)?\s?(?:mg|g|IU|mcg)\b)
+    |(?P<PHONE>(?:\+91-\d{10}|\b0\d{2,3}-\d{7,8})\b)
+    |(?P<ABBREV>\b(?:[A-Za-z]\.){2,}|Tab\.|Cap\.|Inj\.|Dr\.|Mr\.|Mrs\.)
+    |(?P<HYPHEN>\b[A-Za-z]+(?:-[A-Za-z0-9]+)+\b)
+    |(?P<NUMBER>\b\d+(?:\.\d+)?\b)
+    |(?P<WORD>\b[A-Za-z]+\b)
+    """,
+    re.VERBOSE
+)
+
+CLINICAL_ABBREV_MAP = {
+    "od": "once daily", "bd": "twice daily", "tds": "three times daily",
+    "qid": "four times daily", "sos": "if needed", "hs": "at bedtime",
+    "stat": "immediately", "po": "orally", "iv": "intravenous",
+    "im": "intramuscular", "sc": "subcutaneous", "tab.": "tablet",
+    "cap.": "capsule", "inj.": "injection", "bp": "blood pressure",
+    "hr": "heart rate", "rr": "respiratory rate", "temp": "temperature",
+    "spo2": "oxygen saturation", "hb": "hemoglobin", "wbc": "white blood cell",
+    "rbc": "red blood cell", "plt": "platelet", "opd": "outpatient department",
+    "ipd": "inpatient department", "icu": "intensive care unit", "er": "emergency room",
+    "hx": "history", "dx": "diagnosis", "rx": "prescription",
+    "tx": "treatment", "sx": "symptoms", "sob": "shortness of breath",
+    "htn": "hypertension", "dm": "diabetes mellitus", "cad": "coronary artery disease",
+    "ckd": "chronic kidney disease", "copd": "chronic obstructive pulmonary disease",
+    "uti": "urinary tract infection", "mi": "myocardial infarction"
+}
+
+def tokenize_clinical_text(text: str):
+    return [(m.lastgroup, m.group()) for m in TOKENIZER_REGEX.finditer(text)]
+
+def normalize_clinical_text(text: str) -> str:
+    text = re.sub(r"\b(\d{2})/(\d{2})/(\d{4})\b", r"\3-\2-\1", text)
+    def f_to_c(m):
+        val_f = float(m.group(1))
+        val_c = (val_f - 32.0) * 5.0 / 9.0
+        return f"{val_c:.1f} C"
+    text = re.sub(r"\b(\d{2,3}(?:\.\d)?)\s?F\b", f_to_c, text)
+    tokens = text.split()
+    out = []
+    for tok in tokens:
+        clean = tok.lower().strip(",;:")
+        if clean in CLINICAL_ABBREV_MAP:
+            out.append(CLINICAL_ABBREV_MAP[clean])
+        else:
+            out.append(tok.lower())
+    return " ".join(out)
+
+# ==============================================================================
+# 3. FINITE STATE AUTOMATA (DFA, EPSILON-NFA, SUBSET CONSTRUCTION) (TASK 4)
+# ==============================================================================
+class NFA:
+    def __init__(self, states, alphabet, transitions, start, accept):
+        self.states = states
+        self.alphabet = alphabet
+        self.transitions = transitions
+        self.start = start
+        self.accept = accept
+
+    def epsilon_closure(self, state_set):
+        stack = list(state_set)
+        closure = set(state_set)
+        while stack:
+            s = stack.pop()
+            for nxt in self.transitions.get((s, None), set()):
+                if nxt not in closure:
+                    closure.add(nxt)
+                    stack.append(nxt)
+        return frozenset(closure)
+
+    def move(self, state_set, symbol):
+        res = set()
+        for s in state_set:
+            res |= self.transitions.get((s, symbol), set())
+        return res
+
+    def accepts(self, input_str):
+        current = self.epsilon_closure({self.start})
+        for ch in input_str:
+            sym = 'D' if ch.isdigit() else ('U' if ch in ('F', 'C') else ch)
+            current = self.epsilon_closure(self.move(current, sym))
+        return bool(current & self.accept)
+
+    def to_dfa(self):
+        start_dfa = self.epsilon_closure({self.start})
+        unmarked = [start_dfa]
+        dfa_states = {start_dfa: "D0"}
+        dfa_trans = {}
+        dfa_accept = set()
+        while unmarked:
+            curr = unmarked.pop(0)
+            if curr & self.accept:
+                dfa_accept.add(dfa_states[curr])
+            for sym in self.alphabet:
+                nxt = self.epsilon_closure(self.move(curr, sym))
+                if not nxt:
+                    continue
+                if nxt not in dfa_states:
+                    dfa_states[nxt] = f"D{len(dfa_states)}"
+                    unmarked.append(nxt)
+                dfa_trans[(dfa_states[curr], sym)] = dfa_states[nxt]
+        return dfa_states, dfa_trans, "D0", dfa_accept
+
+temp_nfa = NFA(
+    states={"q0", "q1", "q2", "q3", "q4", "q5", "q6"},
+    alphabet={"D", ".", " ", "U"},
+    transitions={
+        ("q0", "D"): {"q1"},
+        ("q1", "D"): {"q2"},
+        ("q2", "D"): {"q3"},
+        ("q2", None): {"q3"},
+        ("q3", "."): {"q4"},
+        ("q3", None): {"q5"},
+        ("q4", "D"): {"q5"},
+        ("q5", " "): {"q5"},
+        ("q5", "U"): {"q6"},
+    },
+    start="q0",
+    accept={"q6"}
+)
+
+# ==============================================================================
+# 4. BIDIRECTIONAL FINITE-STATE MORPHOLOGICAL PARSER & GENERATOR (TASKS 7 & 8)
+# ==============================================================================
+DERIV_PREFIXES = {
+    "hyper": "EXCESS+", "hypo": "DEFICIENT+", "re": "AGAIN+",
+    "un": "NEG+", "sub": "UNDER+", "anti": "AGAINST+",
+    "poly": "MANY+", "olig": "FEW+", "dys": "ABNORMAL+", "a": "WITHOUT+"
+}
+
+def apply_orthographic_rules(stem: str, suffix: str) -> str:
+    if stem.endswith("y") and len(stem) > 2 and stem[-2] not in "aeiou" and suffix in ("s", "es", "ed"):
+        return stem[:-1] + "ies" if suffix in ("s", "es") else stem[:-1] + "ied"
+    if suffix == "s" and stem.endswith(("s", "x", "z", "ch", "sh")):
+        return stem + "es"
+    if stem.endswith("e") and suffix.startswith(("i", "e", "a")):
+        return stem[:-1] + suffix
+    if len(stem) >= 3 and stem[-1] not in "aeiouwxy" and stem[-2] in "aeiou" and stem[-3] not in "aeiou":
+        if stem in ("admit", "remit", "recur", "refer") and suffix.startswith(("e", "i")):
+            return stem + stem[-1] + suffix
+    return stem + suffix
+
+def morph_parse(surface_word: str):
+    w = surface_word.lower()
+    analyses = []
+    if w in IRREGULAR_FORMS:
+        analyses.extend(IRREGULAR_FORMS[w])
+    if w in NOUN_STEMS:
+        analyses.append(f"{w}+N+SG")
+    if w in VERB_STEMS:
+        analyses.append(f"{w}+V+BASE")
+    if w in ADJ_STEMS:
+        analyses.append(f"{w}+ADJ+POS")
+
+    if w.endswith("ies") and len(w) > 4:
+        cand = w[:-3] + "y"
+        if cand in NOUN_STEMS:
+            analyses.append(f"{cand}+N+PL")
+    if w.endswith("es") and len(w) > 3:
+        for cand in (w[:-2], w[:-1]):
+            if cand in NOUN_STEMS:
+                analyses.append(f"{cand}+N+PL")
+            if cand in VERB_STEMS:
+                analyses.append(f"{cand}+V+3SG")
+    if w.endswith("s") and not w.endswith("ss") and len(w) > 2:
+        cand = w[:-1]
+        if cand in NOUN_STEMS:
+            analyses.append(f"{cand}+N+PL")
+        if cand in VERB_STEMS:
+            analyses.append(f"{cand}+V+3SG")
+
+    if w.endswith("ed") and len(w) > 3:
+        cands = {w[:-2], w[:-1]}
+        if len(w) > 4 and w[-3] == w[-4]:
+            cands.add(w[:-3])
+        for cand in cands:
+            if cand in VERB_STEMS:
+                analyses.append(f"{cand}+V+PAST")
+    if w.endswith("ing") and len(w) > 4:
+        cands = {w[:-3], w[:-3] + "e"}
+        if len(w) > 5 and w[-4] == w[-5]:
+            cands.add(w[:-4])
+        for cand in cands:
+            if cand in VERB_STEMS:
+                analyses.append(f"{cand}+V+PROG")
+
+    for pref, pfeat in DERIV_PREFIXES.items():
+        if w.startswith(pref) and len(w) - len(pref) >= 4:
+            rem = w[len(pref):]
+            if rem in NOUN_STEMS:
+                analyses.append(f"{pfeat}{rem}+N+SG")
+            elif rem in ADJ_STEMS:
+                analyses.append(f"{pfeat}{rem}+ADJ+POS")
+
+    return sorted(list(set(analyses))) if analyses else [f"{w}+UNK"]
+
+def morph_generate(lexical_form: str) -> str:
+    parts = lexical_form.split("+")
+    stem = parts[0]
+    if len(parts) == 1:
+        return stem
+    pos = parts[1]
+    feat = parts[2] if len(parts) > 2 else ""
+    if pos == "N":
+        return apply_orthographic_rules(stem, "s") if feat == "PL" else stem
+    if pos == "V":
+        if feat == "3SG":
+            return apply_orthographic_rules(stem, "s")
+        if feat == "PAST":
+            return apply_orthographic_rules(stem, "ed")
+        if feat == "PROG":
+            return apply_orthographic_rules(stem, "ing")
+    return stem
+
+# ==============================================================================
+# 5. DAY-4 ADAPTATION: WEIGHTED EDIT DISTANCE & LANGUAGE ID (TASK 12)
+# ==============================================================================
+OCR_CONFUSION_WEIGHTS = {
+    ('0', 'o'): 0.2, ('o', '0'): 0.2,
+    ('1', 'l'): 0.2, ('l', '1'): 0.2,
+    ('1', 'i'): 0.25, ('i', '1'): 0.25,
+    ('5', 's'): 0.3, ('s', '5'): 0.3,
+    ('8', 'b'): 0.3, ('b', '8'): 0.3
+}
+
+def weighted_levenshtein(s1: str, s2: str) -> float:
+    m, n = len(s1), len(s2)
+    dp = [[0.0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m + 1):
+        dp[i][0] = float(i)
+    for j in range(n + 1):
+        dp[0][j] = float(j)
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            cost = 0.0 if s1[i-1] == s2[j-1] else OCR_CONFUSION_WEIGHTS.get((s1[i-1], s2[j-1]), 1.0)
+            dp[i][j] = min(dp[i-1][j] + 1.0, dp[i][j-1] + 1.0, dp[i-1][j-1] + cost)
+    return dp[m][n]
+
+TAMIL_ROMANISED_LEXICON = {
+    "ku": "DAT_MARKER", "irundhuchu": "be+PAST", "kuduthen": "give+PAST+1SG",
+    "vali": "pain+N", "kaichal": "fever+N", "marundhu": "medicine+N",
+    "sapten": "eat+PAST+1SG", "illa": "NEG", "romba": "ADV_INTENS"
+}
+
+def detect_token_language(tok: str) -> str:
+    t = tok.lower()
+    if t in TAMIL_ROMANISED_LEXICON or t.endswith(("chu", "then", "nga", "kku")):
+        return "TA-ROM"
+    return "EN-MED"
+
+if __name__ == "__main__":
+    dfa_s, dfa_t, dfa_start, dfa_acc = temp_nfa.to_dfa()
+    print(f"NFA States: {len(temp_nfa.states)} -> Subset DFA States: {len(dfa_s)}")
+    for test_s in ["98.6 F", "102F", "37.2 C", "98.", "102.56 F"]:
+        print(f"  '{test_s}' -> Accepted: {temp_nfa.accepts(test_s)}")
+    for word in ["fractures", "nephrectomies", "admitted", "evaluating", "hypertension", "mice"]:
+        print(f"  Parse('{word}') -> {morph_parse(word)}")
+    for lex in ["fracture+N+PL", "biopsy+N+PL", "admit+V+PAST", "evaluate+V+PROG"]:
+        print(f"  Generate('{lex}') -> '{morph_generate(lex)}'")
