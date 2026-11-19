@@ -1,0 +1,273 @@
+"""
+DSA03 - NATURAL LANGUAGE PROCESSING | ASSIGNMENT 3 (CO3)
+Title: Design, Parse and Probabilistically Rank English Queries for a University Helpdesk
+       Using Context-Free Grammars, Feature Structures and Earley Parsing
+Student Name: DILIP SV | Register No: 192424426L
+Dependencies: Python 3 Standard Library + NLTK only
+"""
+
+import time
+import math
+from collections import defaultdict
+
+# ==============================================================================
+# 1. FEATURE STRUCTURES & UNIFICATION ENGINE (TASK 8)
+# ==============================================================================
+class UnificationFailure(Exception):
+    pass
+
+def unify(fs1, fs2):
+    """Recursive attribute-value matrix (AVM) unification supporting feature paths."""
+    if fs1 == fs2:
+        return fs1
+    if isinstance(fs1, str) and fs1.startswith("?"):
+        return fs2
+    if isinstance(fs2, str) and fs2.startswith("?"):
+        return fs1
+    if isinstance(fs1, dict) and isinstance(fs2, dict):
+        result = dict(fs1)
+        for k, v2 in fs2.items():
+            if k in result:
+                result[k] = unify(result[k], v2)
+            else:
+                result[k] = v2
+        return result
+    raise UnificationFailure(f"Cannot unify {fs1} with {fs2}")
+
+# ==============================================================================
+# 2. LEXICON (65+ HELPDESK WORDS WITH NUM, PER, CASE, SUBCAT FEATURES)
+# ==============================================================================
+LEXICON = {
+    "the":   [("DT", {"NUM": "?n"})],
+    "a":     [("DT", {"NUM": "sg"})],
+    "an":    [("DT", {"NUM": "sg"})],
+    "this":  [("DT", {"NUM": "sg"})],
+    "these": [("DT", {"NUM": "pl"})],
+    "my":    [("DT", {"NUM": "?n"})],
+    "our":   [("DT", {"NUM": "?n"})],
+    "i":     [("PRP", {"NUM": "sg", "PER": 1, "CASE": "nom"})],
+    "me":    [("PRP", {"NUM": "sg", "PER": 1, "CASE": "acc"})],
+    "we":    [("PRP", {"NUM": "pl", "PER": 1, "CASE": "nom"})],
+    "us":    [("PRP", {"NUM": "pl", "PER": 1, "CASE": "acc"})],
+    "you":   [("PRP", {"NUM": "?n", "PER": 2, "CASE": "?c"})],
+    "he":    [("PRP", {"NUM": "sg", "PER": 3, "CASE": "nom"})],
+    "him":   [("PRP", {"NUM": "sg", "PER": 3, "CASE": "acc"})],
+    "they":  [("PRP", {"NUM": "pl", "PER": 3, "CASE": "nom"})],
+    "them":  [("PRP", {"NUM": "pl", "PER": 3, "CASE": "acc"})],
+    "student":     [("NN", {"NUM": "sg", "PER": 3})],
+    "students":    [("NNS", {"NUM": "pl", "PER": 3})],
+    "exam":        [("NN", {"NUM": "sg", "PER": 3})],
+    "exams":       [("NNS", {"NUM": "pl", "PER": 3})],
+    "timetable":   [("NN", {"NUM": "sg", "PER": 3})],
+    "timetables":  [("NNS", {"NUM": "pl", "PER": 3})],
+    "fee":         [("NN", {"NUM": "sg", "PER": 3})],
+    "fees":        [("NNS", {"NUM": "pl", "PER": 3})],
+    "hostel":      [("NN", {"NUM": "sg", "PER": 3})],
+    "room":        [("NN", {"NUM": "sg", "PER": 3})],
+    "rooms":       [("NNS", {"NUM": "pl", "PER": 3})],
+    "library":     [("NN", {"NUM": "sg", "PER": 3})],
+    "seminar":     [("NN", {"NUM": "sg", "PER": 3})],
+    "notice":      [("NN", {"NUM": "sg", "PER": 3})],
+    "form":        [("NN", {"NUM": "sg", "PER": 3})],
+    "forms":       [("NNS", {"NUM": "pl", "PER": 3})],
+    "receipt":     [("NN", {"NUM": "sg", "PER": 3})],
+    "portal":      [("NN", {"NUM": "sg", "PER": 3})],
+    "placement":   [("NN", {"NUM": "sg", "PER": 3})],
+    "placements":  [("NNS", {"NUM": "pl", "PER": 3})],
+    "office":      [("NN", {"NUM": "sg", "PER": 3})],
+    "results":     [("NNS", {"NUM": "pl", "PER": 3})],
+    "card":        [("NN", {"NUM": "sg", "PER": 3})],
+    "crashed":     [("VBD", {"SUBCAT": "intr"})],
+    "closed":      [("VBD", {"SUBCAT": "intr"})],
+    "submit":      [("VB",  {"SUBCAT": "trans", "NUM": "pl"}), ("VBP", {"SUBCAT": "trans", "NUM": "pl"})],
+    "submits":     [("VBZ", {"SUBCAT": "trans", "NUM": "sg", "PER": 3})],
+    "book":        [("VB",  {"SUBCAT": "trans", "NUM": "pl"}), ("NN", {"NUM": "sg", "PER": 3})],
+    "books":       [("VBZ", {"SUBCAT": "trans", "NUM": "sg", "PER": 3}), ("NNS", {"NUM": "pl", "PER": 3})],
+    "show":        [("VB",  {"SUBCAT": "trans"}), ("VB", {"SUBCAT": "ditrans"})],
+    "send":        [("VB",  {"SUBCAT": "ditrans"})],
+    "issue":       [("VB",  {"SUBCAT": "ditrans"})],
+    "tell":        [("VB",  {"SUBCAT": "comp_s"}), ("VB", {"SUBCAT": "ditrans"})],
+    "confirm":     [("VB",  {"SUBCAT": "comp_s"})],
+    "apply":       [("VB",  {"SUBCAT": "comp_pp"})],
+    "register":    [("VB",  {"SUBCAT": "comp_pp"})],
+    "held":        [("VBN", {"SUBCAT": "intr"})],
+    "postponed":   [("VBN", {"SUBCAT": "trans"})],
+    "paid":        [("VBN", {"SUBCAT": "trans"})],
+    "is":    [("VBZ", {"NUM": "sg", "PER": 3})],
+    "are":   [("VBP", {"NUM": "pl"})],
+    "was":   [("VBD", {"NUM": "sg", "PER": 3})],
+    "were":  [("VBD", {"NUM": "pl"})],
+    "will":  [("MD",  {})],
+    "can":   [("MD",  {})],
+    "be":    [("VB",  {})],
+    "with":  [("IN",  {})],
+    "near":  [("IN",  {})],
+    "for":   [("IN",  {})],
+    "in":    [("IN",  {})],
+    "on":    [("IN",  {})],
+    "to":    [("TO",  {})],
+    "late":  [("JJ",  {})],
+    "due":   [("JJ",  {})],
+    "new":   [("JJ",  {})],
+    "and":   [("CC",  {})],
+    "or":    [("CC",  {})],
+    "that":  [("COMP", {}), ("REL", {})],
+    "whether": [("COMP", {})],
+    "when":  [("WRB", {})],
+    "where": [("WRB", {})],
+    "which": [("WDT", {})],
+    "who":   [("WP",  {})],
+}
+
+# ==============================================================================
+# 3. PROBABILISTIC CONTEXT-FREE GRAMMAR (PCFG) RULES (42 RULES)
+# ==============================================================================
+PCFG_RULES = [
+    ("S", ["NP", "VP"], 0.40),
+    ("S", ["VP"], 0.25),
+    ("S", ["AUX", "NP", "VP"], 0.15),
+    ("S", ["WHNP", "VP"], 0.10),
+    ("S", ["WHADVP", "AUX", "NP", "VP"], 0.10),
+    ("NP", ["DT", "NOM"], 0.45),
+    ("NP", ["NOM"], 0.20),
+    ("NP", ["PRP"], 0.12),
+    ("NP", ["NP", "PP"], 0.13),
+    ("NP", ["NP", "CC", "NP"], 0.05),
+    ("NP", ["NP", "RELCL"], 0.05),
+    ("NOM", ["NN"], 0.45),
+    ("NOM", ["NNS"], 0.30),
+    ("NOM", ["JJ", "NOM"], 0.15),
+    ("NOM", ["NN", "NOM"], 0.10),
+    ("VP", ["V_INTR"], 0.12),
+    ("VP", ["V_TRANS", "NP"], 0.36),
+    ("VP", ["V_DITRANS", "NP", "NP"], 0.12),
+    ("VP", ["V_COMPS", "NP", "SBAR"], 0.10),
+    ("VP", ["V_COMPPP", "PP"], 0.10),
+    ("VP", ["VP", "PP"], 0.14),
+    ("VP", ["AUX", "VBN"], 0.06),
+    ("PP", ["IN", "NP"], 1.00),
+    ("SBAR", ["COMP", "S"], 0.65),
+    ("SBAR", ["WHADVP", "S"], 0.35),
+    ("RELCL", ["REL", "VP"], 1.00),
+    ("WHNP", ["WP"], 0.50),
+    ("WHNP", ["WDT", "NOM"], 0.50),
+    ("WHADVP", ["WRB"], 1.00),
+    ("AUX", ["VBZ"], 0.30), ("AUX", ["VBP"], 0.25), ("AUX", ["VBD"], 0.20), ("AUX", ["MD"], 0.25),
+    ("V_INTR", ["VBD"], 0.60), ("V_INTR", ["VBN"], 0.40),
+    ("V_TRANS", ["VB"], 0.45), ("V_TRANS", ["VBP"], 0.30), ("V_TRANS", ["VBZ"], 0.25),
+    ("V_DITRANS", ["VB"], 1.00),
+    ("V_COMPS", ["VB"], 1.00),
+    ("V_COMPPP", ["VB"], 1.00),
+]
+
+# ==============================================================================
+# 4. TOP-DOWN RECURSIVE DESCENT PARSER (BOUNDED DEPTH FOR LEFT RECURSION)
+# ==============================================================================
+def top_down_parse(tokens, grammar, lexicon, max_depth=14):
+    steps = [0]
+    def expand(symbols, pos, depth):
+        steps[0] += 1
+        if depth > max_depth:
+            return []
+        if not symbols:
+            return [([], pos)] if pos == len(tokens) else []
+        first, rest = symbols[0], symbols[1:]
+        results = []
+        if pos < len(tokens):
+            word = tokens[pos].lower()
+            for pos_tag, _ in lexicon.get(word, []):
+                if pos_tag == first:
+                    for sub_tree, end_pos in expand(rest, pos + 1, depth):
+                        results.append(([(first, word)] + sub_tree, end_pos))
+        for lhs, rhs, _ in grammar:
+            if lhs == first:
+                for sub_tree, end_pos in expand(rhs + rest, pos, depth + 1):
+                    results.append(([(lhs, sub_tree)], end_pos))
+        return results
+
+    parses = expand(["S"], 0, 0)
+    return parses, steps[0]
+
+# ==============================================================================
+# 5. EARLEY CHART PARSER WITH DYNAMIC PROGRAMMING & BACK-POINTERS (TASK 7)
+# ==============================================================================
+class EarleyState:
+    def __init__(self, lhs, rhs, dot, start, end, prob=1.0, backptrs=()):
+        self.lhs = lhs
+        self.rhs = tuple(rhs)
+        self.dot = dot
+        self.start = start
+        self.end = end
+        self.prob = prob
+        self.backptrs = backptrs
+
+    def is_complete(self):
+        return self.dot >= len(self.rhs)
+
+    def next_cat(self):
+        return self.rhs[self.dot] if not self.is_complete() else None
+
+    def key(self):
+        return (self.lhs, self.rhs, self.dot, self.start)
+
+    def __repr__(self):
+        rhs_d = list(self.rhs)
+        rhs_d.insert(self.dot, "•")
+        return f"[{self.lhs} -> {' '.join(rhs_d)}, ({self.start}, {self.end})]"
+
+def earley_parse(tokens, grammar, lexicon):
+    n = len(tokens)
+    chart = [{} for _ in range(n + 1)]
+    queues = [[] for _ in range(n + 1)]
+
+    def enqueue(state, idx):
+        k = state.key()
+        if k not in chart[idx]:
+            chart[idx][k] = [state]
+            queues[idx].append(state)
+        else:
+            chart[idx][k].append(state)
+
+    for lhs, rhs, p in grammar:
+        if lhs == "S":
+            enqueue(EarleyState(lhs, rhs, 0, 0, 0, p), 0)
+
+    for i in range(n + 1):
+        q_idx = 0
+        while q_idx < len(queues[i]):
+            state = queues[i][q_idx]
+            q_idx += 1
+            if not state.is_complete():
+                nxt = state.next_cat()
+                for lhs, rhs, p in grammar:
+                    if lhs == nxt:
+                        enqueue(EarleyState(lhs, rhs, 0, i, i, p), i)
+                if i < n:
+                    word = tokens[i].lower()
+                    for pos_tag, _ in lexicon.get(word, []):
+                        if pos_tag == nxt:
+                            enqueue(EarleyState(nxt, [word], 1, i, i + 1, 1.0), i + 1)
+            else:
+                for prev_list in list(chart[state.start].values()):
+                    st = prev_list[0]
+                    if not st.is_complete() and st.next_cat() == state.lhs:
+                        new_st = EarleyState(
+                            st.lhs, st.rhs, st.dot + 1, st.start, i,
+                            st.prob * state.prob, st.backptrs + (state,)
+                        )
+                        enqueue(new_st, i)
+
+    completed_s = []
+    for k, st_list in chart[n].items():
+        if k[0] == "S" and k[2] == len(k[1]) and k[3] == 0:
+            completed_s.extend(st_list)
+    total_states = sum(len(c) for c in chart)
+    return completed_s, total_states, chart
+
+if __name__ == "__main__":
+    test_ambig = ["book", "the", "room", "for", "the", "seminar"]
+    parses, total_st, _ = earley_parse(test_ambig, PCFG_RULES, LEXICON)
+    print(f"Sentence: {' '.join(test_ambig)}")
+    print(f"Earley Chart States: {total_st} | Distinct Parses Found: {len(parses)}")
+    for idx, p in enumerate(sorted(parses, key=lambda x: -x.prob), 1):
+        print(f"  Parse #{idx}: Probability = {p.prob:.6e} | {p}")
