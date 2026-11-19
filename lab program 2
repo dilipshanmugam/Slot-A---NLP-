@@ -1,0 +1,88 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyPZTGIADxHGDXcKMt6B4OO7",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/dilipshanmugam/Slot-A---NLP-/blob/main/lab%20program%202\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "Implement a basic finite state automaton that recognizes a specific language or pattern.\n",
+        "In this example, we'll create a simple automaton to match strings ending with 'ab' using\n",
+        "python."
+      ],
+      "metadata": {
+        "id": "bY0TP-62WqO6"
+      }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "aDCdTStGWfw1"
+      },
+      "outputs": [],
+      "source": [
+        "class EndsWithABAutomaton:\n",
+        "\n",
+        "  def __init__(self):\n",
+        "    # Define the transition table: {(current_state, input_symbol): next_state}\n",
+        "    self.transitions = {\n",
+        "        (\"q0\", \"a\"): \"q1\",\n",
+        "        (\"q0\", \"b\"): \"q0\",\n",
+        "        (\"q1\", \"a\"): \"q1\",  # Still ends in 'a' (e.g., \"aa\")\n",
+        "        (\"q1\", \"b\"): \"q2\",  # Reached \"ab\" -> Accept state\n",
+        "        (\"q2\", \"a\"): \"q1\",  # New 'a' restarts potential \"ab\" suffix\n",
+        "        (\"q2\", \"b\"): \"q0\",  # Ends in \"bb\" -> Reset to start state\n",
+        "    }\n",
+        "    self.start_state = \"q0\"\n",
+        "    self.accept_states = {\"q2\"}\n",
+        "\n",
+        "  def accepts(self, input_string: str) -> bool:\n",
+        "    current_state = self.start_state\n",
+        "\n",
+        "    for char in input_string:\n",
+        "      # Reject immediately if an invalid character (not 'a' or 'b') is encountered\n",
+        "      if (current_state, char) not in self.transitions:\n",
+        "        return False\n",
+        "      current_state = self.transitions[(current_state, char)]\n",
+        "\n",
+        "    return current_state in self.accept_states\n",
+        "\n",
+        "\n",
+        "# --- Testing the Automaton ---\n",
+        "if __name__ == \"__main__\":\n",
+        "  dfa = EndsWithABAutomaton()\n",
+        "  test_strings = [\"ab\", \"aab\", \"bab\", \"abab\", \"a\", \"b\", \"aba\", \"abb\", \"\", \"abc\"]\n",
+        "\n",
+        "  print(f\"{'Input':<10} | {'Accepted?'}\")\n",
+        "  print(\"-\" * 23)\n",
+        "  for s in test_strings:\n",
+        "    display_str = f\"'{s}'\" if s else \"'' (empty)\"\n",
+        "    print(f\"{display_str:<10} | {dfa.accepts(s)}\")"
+      ]
+    }
+  ]
+}
