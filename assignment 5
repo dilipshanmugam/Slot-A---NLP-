@@ -1,1 +1,187 @@
 
+"""
+DSA03 - NATURAL LANGUAGE PROCESSING | ASSIGNMENT 5 (CO5)
+Title: Discourse-Aware Public Information Service for a District Disaster Control Room
+       Using Reference Resolution, Dialogue Management, NLG and Machine Translation
+Student Name: DILIP SV | Register No: 192424426L
+Dependencies: Python 3 Standard Library, NLTK and scikit-learn only
+"""
+
+import re
+import math
+import time
+import random
+from collections import Counter, defaultdict
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.linear_model import LogisticRegression
+
+SEED = 42
+random.seed(SEED)
+
+# ==============================================================================
+# 1. DISCOURSE SEGMENTER & ENTITY-GRID COHERENCE SCORER (TASKS 1 & 3)
+# ==============================================================================
+CUE_PHRASES = {"because", "therefore", "however", "meanwhile", "consequently", "furthermore", "additionally", "while"}
+
+def segment_discourse(text: str):
+    """Segments multi-sentence report into Elementary Discourse Units (EDUs)."""
+    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
+    edus = []
+    for s in sents:
+        parts = re.split(r"\b(because|however|while|therefore|consequently)\b", s, flags=re.I)
+        buf = ""
+        for p in parts:
+            if p.lower() in CUE_PHRASES and buf.strip():
+                edus.append(buf.strip())
+                buf = p
+            else:
+                buf += p
+        if buf.strip():
+            edus.append(buf.strip())
+    return edus
+
+def entity_grid_coherence(sentences_roles):
+    """Computes Barzilay & Lapata (2008) entity-grid transition probabilities (S, O, X, -)."""
+    entities = sorted({e for sent in sentences_roles for e in sent})
+    transitions = Counter()
+    total = 0
+    for ent in entities:
+        for i in range(len(sentences_roles) - 1):
+            r1 = sentences_roles[i].get(ent, "-")
+            r2 = sentences_roles[i+1].get(ent, "-")
+            transitions[(r1, r2)] += 1
+            total += 1
+    probs = {k: v / max(1, total) for k, v in transitions.items()}
+    salient = sum(probs.get(pair, 0.0) for pair in [("S", "S"), ("S", "O"), ("O", "S"), ("O", "O")])
+    return probs, salient
+
+# ==============================================================================
+# 2. HOBBS' ALGORITHM & CENTERING THEORY REFERENCE RESOLVERS (TASK 2)
+# ==============================================================================
+class ParseNode:
+    def __init__(self, label, children=None, head=None, num="sg", gender="neut"):
+        self.label = label
+        self.children = children or []
+        self.head = head
+        self.num = num
+        self.gender = gender
+
+def hobbs_resolve(pronoun_num, pronoun_gender, prev_trees):
+    """Simplified Hobbs breadth-first left-to-right NP search over prior parse trees."""
+    for tree in reversed(prev_trees):
+        queue = [tree]
+        while queue:
+            node = queue.pop(0)
+            if node.label == "NP" and node.head:
+                if node.num == pronoun_num and node.gender in (pronoun_gender, "neut"):
+                    return node.head
+            queue.extend(node.children)
+    return "UNRESOLVED"
+
+def centering_transitions(utterance_cf_lists):
+    """Tracks Cf (salience-ranked), Cb (backward center) and Continue/Retain/Shift."""
+    results = []
+    prev_cb = None
+    for idx, cf in enumerate(utterance_cf_lists):
+        if idx == 0:
+            cb = cf[0] if cf else None
+            results.append((idx, cf, cb, "INIT (No prior Cb)"))
+        else:
+            prev_cf = utterance_cf_lists[idx - 1]
+            cb = next((e for e in prev_cf if e in cf), None)
+            cp = cf[0] if cf else None
+            if cb == prev_cb and cb == cp:
+                trans = "CONTINUE"
+            elif cb == prev_cb and cb != cp:
+                trans = "RETAIN"
+            elif cb != prev_cb and cb == cp:
+                trans = "SMOOTH-SHIFT"
+            else:
+                trans = "ROUGH-SHIFT"
+            results.append((idx, cf, cb, trans))
+        prev_cb = cb
+    return results
+
+# ==============================================================================
+# 3. FRAME-BASED DIALOGUE MANAGER & DIALOGUE ACT CLASSIFIER (TASKS 5 & 6)
+# ==============================================================================
+class ShelterDialogueFrame:
+    def __init__(self):
+        self.slots = {"ward": None, "group_size": None, "special_need": None, "confirmed": False}
+
+    def update(self, user_act, extracted_slots):
+        if user_act == "CORRECTION":
+            for k, v in extracted_slots.items():
+                self.slots[k] = v
+                self.slots["confirmed"] = False
+            return f"Updated {list(extracted_slots.keys())}. Confirming: {self.slots}?"
+        for k, v in extracted_slots.items():
+            if v is not None:
+                self.slots[k] = v
+        if user_act == "CONFIRM":
+            self.slots["confirmed"] = True
+            return f"Camp Gandhi-Hall in {self.slots['ward']} is OPEN (Capacity: 120). Safe route via Main Road."
+        if not self.slots["ward"]:
+            return "Which ward or locality are you calling from?"
+        if not self.slots["group_size"]:
+            return f"Got it, {self.slots['ward']}. How many people need shelter?"
+        if not self.slots["confirmed"]:
+            return f"Implicitly noted {self.slots['ward']} for {self.slots['group_size']} people. Shall I lock this shelter request?"
+        return "Request already confirmed."
+
+# ==============================================================================
+# 4. THREE-STAGE BULLETIN GENERATOR (NLG) & IBM MODEL 1 EM TRANSLATOR (TASKS 7-9)
+# ==============================================================================
+def generate_bulletin(incident_record, audience="citizen"):
+    """Stage 1: Content Selection -> Stage 2: Discourse/Sentence Plan -> Stage 3: Surface Realisation."""
+    loc = incident_record["location"]
+    status = incident_record["road_status"]
+    cause = incident_record["cause"]
+    diversion = incident_record["diversion"]
+    depth_cm = incident_record["water_depth_cm"]
+
+    if audience == "officer":
+        return (f"[INCIDENT {incident_record['id']}] {loc}: Status={status.upper()} "
+                f"(Water={depth_cm}cm; Cause={cause}). Action: Divert via {diversion}.")
+    s1 = f"{loc} is currently {status} due to {cause}."
+    s2 = f"Because water levels on the affected stretch have reached {depth_cm} cm, motorists are advised to use {diversion}."
+    return f"{s1} {s2}"
+
+def ibm_model1_em_step(parallel_corpus, num_iters=3):
+    """Runs EM iterations for IBM Model 1 word alignment probabilities t(f | e)."""
+    en_vocab = {w for en, _ in parallel_corpus for w in ["NULL"] + en}
+    ta_vocab = {w for _, ta in parallel_corpus for w in ta}
+    t = {f: {e: 1.0 / len(ta_vocab) for e in en_vocab} for f in ta_vocab}
+
+    for it in range(num_iters):
+        count = defaultdict(lambda: defaultdict(float))
+        total_e = defaultdict(float)
+        for en, ta in parallel_corpus:
+            en_ext = ["NULL"] + en
+            for f in ta:
+                z = sum(t[f][e] for e in en_ext)
+                for e in en_ext:
+                    delta = t[f][e] / z
+                    count[f][e] += delta
+                    total_e[e] += delta
+        for f in ta_vocab:
+            for e in en_vocab:
+                t[f][e] = count[f][e] / max(1e-9, total_e[e])
+    return t
+
+if __name__ == "__main__":
+    cf_seq = [["NH-48", "bridge"], ["NH-48", "vehicles"], ["NH-48", "bypass"]]
+    print("Centering Transitions:", centering_transitions(cf_seq))
+
+    inc = {"id": "INC-108", "location": "NH-48 Palar Bridge", "road_status": "closed",
+           "cause": "heavy monsoon flooding", "diversion": "the Vellore Bypass", "water_depth_cm": 65}
+    print("Citizen Bulletin:", generate_bulletin(inc, "citizen"))
+    print("Officer Bulletin:", generate_bulletin(inc, "officer"))
+
+    toy_pairs = [
+        (["road", "closed"], ["saalai", "moodappattathu"]),
+        (["road", "flooded"], ["saalai", "vellam"]),
+        (["bridge", "closed"], ["paalam", "moodappattathu"])
+    ]
+    t_probs = ibm_model1_em_step(toy_pairs, num_iters=1)
+    print(f"IBM Model 1 Iter-1 P('saalai' | 'road') = {t_probs['saalai']['road']:.4f}")
